@@ -29,15 +29,23 @@
 
 ## 安装
 
-```bash
-cd x42s_stepper
-pip install -e .
+本项目已发布到 PyPI，推荐直接使用 pip 安装：
 
+```bash
+pip install x42s_stepper
+```
+
+该命令会自动安装依赖（`pyserial>=3.5`）。需要 Python `>=3.8`。
+
+也可从源码或 GitHub 安装：
+
+```bash
+cd x42s_stepper && pip install -e .
 # 或
 pip install git+https://github.com/xhfb/x42s_stepper.git
 ```
 
-依赖：`pyserial>=3.5`，Python `>=3.8`。
+PyPI：[https://pypi.org/project/x42s-stepper/](https://pypi.org/project/x42s-stepper/)
 
 ## 快速开始
 
