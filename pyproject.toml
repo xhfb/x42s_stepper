@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "x42s_stepper"
+version = "0.1.0"
+description = "ZDT X42S dual-firmware (X/Emm/Turbo) closed-loop stepper driver"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+authors = [
+    {name = "XHFB", email = "2285273839@qq.com"}
+]
+keywords = [
+    "stepper-motor",
+    "motor-control",
+    "serial",
+    "x42s",
+    "zdt",
+    "emm-firmware",
+    "x-firmware",
+]
+classifiers = [
+    "Topic :: Scientific/Engineering",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "pyserial>=3.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black",
+    "flake8",
+    "mypy",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/xhfb/x42s_stepper"
+"Repository" = "https://github.com/xhfb/x42s_stepper"
+
+[tool.setuptools.packages.find]
+include = ["x42s_stepper*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
