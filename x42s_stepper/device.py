@@ -11,6 +11,8 @@ from typing import List, Optional, Tuple, Union
 
 from serial import Serial
 
+from .transport.base import Transport, TransportError
+from .transport.serial import SerialTransport
 from .commands import (
     BroadcastGetID,
     CalibrateEncoder,
@@ -176,7 +178,7 @@ class X42SDevice:
 
     def __init__(
         self,
-        serial_connection: Serial,
+        connection: Optional[Union[Serial, Transport]] = None,
         address: int = 1,
         checksum_mode: ChecksumMode = ChecksumMode.FIXED,
         delay: Optional[float] = None,
@@ -184,11 +186,13 @@ class X42SDevice:
         auto_test: bool = True,
         microstep: int = 16,
         motor_type: MotorType = MotorType.DEGREE_18,
+        *,
+        serial_connection: Optional[Serial] = None,
     ):
         """初始化设备.
 
         Args:
-            serial_connection: 串口连接
+            connection: 串口 ``Serial`` 或 ``Transport``（如 ``CanTransport``）
             address: 电机地址 (1-255)
             checksum_mode: 校验模式
             delay: 通讯延迟(秒)
@@ -196,10 +200,32 @@ class X42SDevice:
             auto_test: 是否在初始化时读取版本以验证连接
             microstep: 细分（用于脉冲↔角度换算）
             motor_type: 电机步距角类型
+            serial_connection: 兼容旧参数名，等价于传入 ``Serial``
         """
-        self._serial = serial_connection
+        if connection is None:
+            connection = serial_connection
+        if connection is None:
+            raise TypeError("必须提供 connection（Serial 或 Transport）")
+        if not isinstance(connection, (Serial, Transport)):
+            raise TypeError(
+                "connection 须为 serial.Serial 或 Transport，"
+                f"收到 {type(connection)!r}"
+            )
+        if not 1 <= int(address) <= 255:
+            raise ValueError("地址必须在 1-255")
+        if isinstance(connection, Serial):
+            transport: Transport = SerialTransport(
+                connection, checksum_mode=checksum_mode
+            )
+            self._serial: Optional[Serial] = connection
+        else:
+            transport = connection
+            self._serial = (
+                connection.serial if isinstance(connection, SerialTransport) else None
+            )
+
         self._device_params = DeviceParams(
-            serial_connection=serial_connection,
+            transport=transport,
             address=address,
             checksum_mode=checksum_mode,
             delay=delay,
@@ -244,6 +270,16 @@ class X42SDevice:
     def device_params(self) -> DeviceParams:
         """设备通讯参数."""
         return self._device_params
+
+    @property
+    def transport(self) -> Transport:
+        """底层传输（SerialTransport / CanTransport）."""
+        return self._device_params.transport
+
+    # 兼容原 x42s_can 示例中的 motor.bus
+    @property
+    def bus(self) -> Transport:
+        return self.transport
 
     @property
     def address(self) -> int:
@@ -808,30 +844,56 @@ class X42SDevice:
         return XTorqueLimited(self._device_params, params=params).is_success
 
     @staticmethod
-    def sync_move(device_params: DeviceParams) -> bool:
-        """触发多机同步运动 (广播)."""
-        return SyncMove(device_params).is_success
+    def sync_move(
+        connection: Union[DeviceParams, Transport],
+        checksum_mode: ChecksumMode = ChecksumMode.FIXED,
+        delay: Optional[float] = None,
+    ) -> bool:
+        """触发多机同步运动 (广播).
+
+        Args:
+            connection: ``DeviceParams`` 或共享 ``Transport``（串口/CAN）
+        """
+        if isinstance(connection, DeviceParams):
+            return SyncMove(connection).is_success
+        params = DeviceParams(
+            transport=connection,
+            address=Address.BROADCAST,
+            checksum_mode=checksum_mode,
+            delay=delay,
+        )
+        return SyncMove(params).is_success
 
     @staticmethod
     def multi_motor(
         frames: List[bytes],
-        device_params: DeviceParams,
+        connection: Union[DeviceParams, Transport],
         expect_ack: bool = True,
+        checksum_mode: ChecksumMode = ChecksumMode.FIXED,
+        delay: Optional[float] = None,
     ) -> bool:
         """发送多电机命令.
 
         Args:
             frames: 已含校验码的完整子命令帧
-            device_params: 提供串口/校验配置的设备参数
+            connection: ``DeviceParams`` 或共享 ``Transport``
             expect_ack: 是否等待地址1确认
         """
-        # MultiMotor 会改写 address，使用临时副本避免污染调用方
-        temp = DeviceParams(
-            serial_connection=device_params.serial_connection,
-            address=Address.BROADCAST,
-            checksum_mode=device_params.checksum_mode,
-            delay=device_params.delay,
-        )
+        if isinstance(connection, DeviceParams):
+            device_params = connection
+            temp = DeviceParams(
+                transport=device_params.transport,
+                address=Address.BROADCAST,
+                checksum_mode=device_params.checksum_mode,
+                delay=device_params.delay,
+            )
+        else:
+            temp = DeviceParams(
+                transport=connection,
+                address=Address.BROADCAST,
+                checksum_mode=checksum_mode,
+                delay=delay,
+            )
         return MultiMotor(temp, frames=frames, expect_ack=expect_ack).is_success
 
     @staticmethod
@@ -906,6 +968,10 @@ class X42SDevice:
         if cmd.data is not None:
             self._firmware_version = cmd.data
         return cmd.data
+
+    def ping(self) -> VersionParams:
+        """通讯探测（读版本）."""
+        return self.get_version()
 
     def get_option_status(self) -> OptionStatus:
         """读取选项参数状态."""
@@ -1065,6 +1131,8 @@ class X42SDevice:
             (addr, code) 或 None
         """
         ser = self._serial
+        if ser is None:
+            raise TransportError("read_event 仅支持串口传输")
         old_timeout = ser.timeout
         buf = b""
         deadline = time.time() + timeout
@@ -1125,12 +1193,20 @@ class X42SDevice:
         params: Union[EmmPIDParams, XPIDParams],
         store: bool = True,
     ) -> bool:
-        """修改 PID 参数 (按参数类型路由)."""
+        """修改 PID 参数 (按参数类型路由；须与当前固件匹配)."""
         if isinstance(params, XPIDParams):
+            if not self._is_x():
+                raise FirmwareCapabilityError(
+                    f"set_pid(XPIDParams) 仅支持 X 固件 (当前: {self.firmware_type})"
+                )
             return SetXPID(
                 self._device_params, params=params, store=store
             ).is_success
         if isinstance(params, EmmPIDParams):
+            if self._is_x():
+                raise FirmwareCapabilityError(
+                    f"set_pid(EmmPIDParams) 仅支持 Emm/Turbo 固件 (当前: {self.firmware_type})"
+                )
             return SetEmmPID(
                 self._device_params, params=params, store=store
             ).is_success
@@ -1275,10 +1351,14 @@ class X42SDevice:
     # ==================== 便捷方法 ====================
 
     @staticmethod
-    def broadcast_get_id(serial_connection: Serial) -> int:
+    def broadcast_get_id(connection: Union[Serial, Transport]) -> int:
         """广播读取 ID 地址 (单机接线时使用)."""
+        if isinstance(connection, Serial):
+            transport: Transport = SerialTransport(connection)
+        else:
+            transport = connection
         device_params = DeviceParams(
-            serial_connection=serial_connection,
+            transport=transport,
             address=Address.BROADCAST,
         )
         return BroadcastGetID(device_params).data

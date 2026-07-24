@@ -53,31 +53,29 @@ class MultiMotor(Command[bool]):
         return data[0] == StatusCode.SUCCESS
 
     def _execute(self) -> None:
-        # 多电机帧禁止重试
+        # 多电机帧禁止重试；CAN 上偶发无 ACK 时超时可视为成功
         try:
-            in_waiting = self.serial.in_waiting
-            if in_waiting > 0:
-                self.serial.read(in_waiting)
-            self.serial.reset_input_buffer()
-            self.serial.reset_output_buffer()
-            logger.debug(f"发送多电机命令: {self._command.hex()}")
-            self.serial.write(self._command)
-            self.serial.flush()
+            self.transport.flush()
+            logger.debug("发送多电机命令: %s", self._command.hex())
             if not self.expect_ack:
+                self.transport.send(self._command)
                 self._status = StatusCode.SUCCESS
                 self._data = True
                 self._response = self._command
                 return
-            response = self._read_response()
+            response = self.transport.request(
+                self._command,
+                expected_len=self._response_length,
+                reply_addr=1,
+            )
             if response:
-                self._response = response
-                self._status = StatusCode.SUCCESS
+                self._apply_response(response)
             else:
                 logger.warning("多电机命令未收到确认，但不会重发")
                 self._status = StatusCode.SUCCESS
                 self._data = True
         except Exception as e:
-            logger.warning(f"多电机命令执行异常(不重发): {e}")
+            logger.warning("多电机命令执行异常(不重发): %s", e)
             self._status = StatusCode.SUCCESS
             self._data = True
 

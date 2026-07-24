@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "x42s_stepper"
-version = "0.1.0"
+version = "0.2.0"
 description = "ZDT X42S dual-firmware (X/Emm/Turbo) closed-loop stepper driver"
 readme = "README.md"
 license = {text = "MIT"}
@@ -16,6 +16,8 @@ keywords = [
     "stepper-motor",
     "motor-control",
     "serial",
+    "can",
+    "socketcan",
     "x42s",
     "zdt",
     "emm-firmware",
@@ -32,6 +34,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+can = [
+    "python-can>=4.0",
+]
 dev = [
     "pytest>=7.0.0",
     "black",

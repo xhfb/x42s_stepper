@@ -4,9 +4,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
-
-from serial import Serial
+from typing import TYPE_CHECKING, Optional
 
 from .configs import (
     Address,
@@ -40,6 +38,12 @@ from .units import (
     x_raw_to_deg,
     x_speed_raw_to_rpm,
 )
+
+if TYPE_CHECKING:
+    from serial import Serial
+
+    from .transport.base import Transport
+
 
 
 def to_int(data: bytes) -> int:
@@ -76,13 +80,13 @@ class DeviceParams:
     """设备参数类.
 
     Args:
-        serial_connection: 串口连接对象
+        transport: 传输层（SerialTransport / CanTransport）
         address: 电机地址 (1-255, 0为广播地址)
         checksum_mode: 校验模式
         delay: 通讯延迟(秒)
     """
 
-    serial_connection: Serial
+    transport: "Transport"
     address: int = Address.DEFAULT
     checksum_mode: ChecksumMode = ChecksumMode.FIXED
     delay: Optional[float] = None
@@ -90,6 +94,15 @@ class DeviceParams:
     def __post_init__(self):
         if isinstance(self.address, int) and not isinstance(self.address, Address):
             self.address = Address(self.address)
+
+    @property
+    def serial_connection(self) -> Optional["Serial"]:
+        """兼容旧代码：仅 SerialTransport 返回底层 Serial，否则 None."""
+        from .transport.serial import SerialTransport
+
+        if isinstance(self.transport, SerialTransport):
+            return self.transport.serial
+        return None
 
 
 @dataclass
