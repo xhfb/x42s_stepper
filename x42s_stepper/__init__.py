@@ -15,6 +15,8 @@ from .configs import (
     SyncFlag,
 )
 from .device import X42SDevice
+from .transport.base import Transport, TransportError
+from .transport.serial import SerialTransport
 from .parameters import (
     DMX512Params,
     DeviceParams,
@@ -52,13 +54,19 @@ from .parameters import (
     XTorqueParams,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "X42SDevice",
     "__version__",
     "CommandError",
     "FirmwareCapabilityError",
+    "Transport",
+    "TransportError",
+    "SerialTransport",
+    "CanTransport",
+    "CanBus",
+    "CanBusError",
     "Address",
     "ChecksumMode",
     "ControlMode",
@@ -105,3 +113,17 @@ __all__ = [
     "MAX_SPEED_RPM_X",
     "MAX_SPEED_RAW_X",
 ]
+
+
+def __getattr__(name: str):
+    """延迟导出 CanTransport，避免未安装 python-can 时影响串口导入."""
+    if name in ("CanTransport", "CanBus", "CanBusError"):
+        from .transport.can import CanBus, CanBusError, CanTransport
+
+        return {
+            "CanTransport": CanTransport,
+            "CanBus": CanBus,
+            "CanBusError": CanBusError,
+        }[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
