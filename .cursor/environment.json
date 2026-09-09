@@ -1,0 +1,4 @@
+{
+  "name": "x42s_stepper",
+  "install": "pip install -e '.[can,dev]'"
+}
